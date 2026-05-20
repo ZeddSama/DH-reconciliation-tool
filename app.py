@@ -4,7 +4,7 @@ import fitz  # PyMuPDF
 from PyPDF2 import PdfReader
 import tempfile
 
-st.title("DH Reconciliation Tool")
+st.title("REDPAY Reconciliation Tool")
 
 # ===== FILE UPLOAD =====
 excel_file = st.file_uploader("Upload Excel/CSV file", type=["xlsx", "csv"])
