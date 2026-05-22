@@ -35,7 +35,7 @@ if st.button("Run Reconciliation"):
         amounts = debits[amount_col].dropna().tolist()
         txn_ids = debits[txn_col].dropna().astype(str).str.strip().tolist()
 
-        # ===== READ PDF TEXT =====
+        # ===== READ PDF =====
         pdf_file.seek(0)
         reader = PdfReader(pdf_file)
 
@@ -45,7 +45,6 @@ if st.button("Run Reconciliation"):
             if text:
                 pdf_text += text
 
-        # Normalize text
         pdf_text_clean = pdf_text.replace(",", "").replace(".00", "")
 
         # ===== MATCH =====
@@ -64,102 +63,16 @@ if st.button("Run Reconciliation"):
             if txn in pdf_text:
                 found_txns.append(txn)
 
-        # ===== CREATE DATAFRAMES FOR REPORT =====
+        # ===== REPORT DATA (FIXED STRUCTURE) =====
 
         # FOUND
-        found_df = pd.DataFrame({
-            "Matched Amount": [int(float(a)) for a in found_amounts],
+        found_amount_df = pd.DataFrame({
+            "Matched Amounts": sorted(set(int(float(a)) for a in found_amounts))
         })
 
-        if found_txns:
-            found_df["Matched Transaction ID"] = list(set(found_txns))
+        found_txn_df = pd.DataFrame({
+            "Matched Transaction IDs": sorted(set(found_txns))
+        })
 
         # MISSING
         all_amounts = [int(float(a)) for a in amounts if pd.notna(a)]
-        missing_amounts = list(set(all_amounts) - set(found_df["Matched Amount"]))
-
-        missing_txns = list(set(txn_ids) - set(found_txns))
-
-        missing_df = pd.DataFrame({
-            "Missing Amount": missing_amounts,
-        })
-
-        if missing_txns:
-            missing_df["Missing Transaction ID"] = missing_txns
-
-        # ===== CREATE EXCEL OUTPUT =====
-        output_excel = io.BytesIO()
-
-        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-            found_df.to_excel(writer, sheet_name="FOUND", index=False)
-            missing_df.to_excel(writer, sheet_name="MISSING", index=False)
-
-        output_excel.seek(0)
-
-        # ===== SAVE PDF TEMP =====
-        pdf_file.seek(0)
-        pdf_bytes = pdf_file.read()
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
-            temp_pdf.write(pdf_bytes)
-            temp_pdf.flush()
-            temp_pdf_path = temp_pdf.name
-
-        doc = fitz.open(temp_pdf_path)
-
-        # ===== HIGHLIGHT MATCHES =====
-        for page in doc:
-
-            # highlight amounts
-            for amt in set(found_amounts):
-                try:
-                    val = float(amt)
-                    formats = [
-                        f"{val:,.2f}",
-                        f"{int(val):,}"
-                    ]
-
-                    for f in formats:
-                        for inst in page.search_for(f):
-                            annot = page.add_highlight_annot(inst)
-                            annot.set_colors(stroke=(1, 1, 0))
-                            annot.update()
-                except:
-                    pass
-
-            # highlight transactions
-            for txn in set(found_txns):
-                for inst in page.search_for(txn):
-                    annot = page.add_highlight_annot(inst)
-                    annot.set_colors(stroke=(0, 1, 0))
-                    annot.update()
-
-        # ===== SAVE OUTPUT PDF =====
-        output_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
-        doc.save(output_pdf, deflate=True, garbage=4)
-
-        # ===== DISPLAY =====
-        st.success("Reconciliation Complete ✅")
-
-        st.write("Matched Amounts:", len(set(found_amounts)))
-        st.write("Matched Transactions:", len(set(found_txns)))
-
-        # ===== DOWNLOAD EXCEL REPORT =====
-        st.download_button(
-            label="Download Excel Report",
-            data=output_excel,
-            file_name="reconciliation_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        # ===== DOWNLOAD PDF =====
-        with open(output_pdf, "rb") as f:
-            st.download_button(
-                label="Download Highlighted PDF",
-                data=f,
-                file_name="highlighted_statement.pdf",
-                mime="application/pdf"
-            )
-
-    else:
-        st.warning("Please upload both files.")
