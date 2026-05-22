@@ -30,9 +30,6 @@ if st.button("Run Reconciliation"):
         # ===== FILTER DEBITS =====
         debits = df[df[action_col].astype(str).str.strip().str.upper() == "DEBIT"]
 
-        amounts = debits[amount_col].dropna().tolist()
-        txn_ids = debits[txn_col].dropna().astype(str).str.strip().tolist()
-
         # ===== READ PDF TEXT =====
         pdf_file.seek(0)
         reader = PdfReader(pdf_file)
@@ -45,62 +42,52 @@ if st.button("Run Reconciliation"):
 
         pdf_text_clean = pdf_text.replace(",", "").replace(".00", "")
 
-        # ===== MATCH =====
-        found_amounts = []
-        found_txns = []
+        # ===== MATCH (PAIRED LOGIC ✅) =====
+        matched_rows = []
+        missing_rows = []
 
-        for amt in amounts:
+        for _, row in debits.iterrows():
             try:
-                clean = str(int(float(amt)))
-                if clean in pdf_text_clean:
-                    found_amounts.append(amt)
+                amt = row[amount_col]
+                txn = str(row[txn_col]).strip()
+
+                amt_clean = str(int(float(amt)))
+
+                amount_found = amt_clean in pdf_text_clean
+                txn_found = txn in pdf_text
+
+                if amount_found and txn_found:
+                    matched_rows.append({
+                        "Amount": int(float(amt)),
+                        "Transaction ID": txn
+                    })
+                else:
+                    missing_rows.append({
+                        "Amount": int(float(amt)),
+                        "Transaction ID": txn
+                    })
+
             except:
-                pass
+                continue
 
-        for txn in txn_ids:
-            if txn in pdf_text:
-                found_txns.append(txn)
+        # ===== CREATE DATAFRAMES =====
+        matched_df = pd.DataFrame(matched_rows)
+        missing_df = pd.DataFrame(missing_rows)
 
-        # ===== REPORT DATA =====
-
-        # FOUND
-        found_amount_df = pd.DataFrame({
-            "Matched Amounts": sorted(set(int(float(a)) for a in found_amounts))
-        })
-
-        found_txn_df = pd.DataFrame({
-            "Matched Transaction IDs": sorted(set(found_txns))
-        })
-
-        # MISSING
-        all_amounts = [int(float(a)) for a in amounts if pd.notna(a)]
-        missing_amounts = sorted(set(all_amounts) - set(found_amount_df["Matched Amounts"]))
-        missing_txns = sorted(set(txn_ids) - set(found_txns))
-
-        missing_amount_df = pd.DataFrame({
-            "Missing Amounts": missing_amounts
-        })
-
-        missing_txn_df = pd.DataFrame({
-            "Missing Transaction IDs": missing_txns
-        })
-
-        # ===== CREATE EXCEL REPORT =====
+        # ===== CREATE EXCEL OUTPUT =====
         output_excel = io.BytesIO()
 
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-            found_amount_df.to_excel(writer, sheet_name="FOUND_AMOUNTS", index=False)
-            found_txn_df.to_excel(writer, sheet_name="FOUND_TXNS", index=False)
-            missing_amount_df.to_excel(writer, sheet_name="MISSING_AMOUNTS", index=False)
-            missing_txn_df.to_excel(writer, sheet_name="MISSING_TXNS", index=False)
+            matched_df.to_excel(writer, sheet_name="MATCHED", index=False)
+            missing_df.to_excel(writer, sheet_name="MISSING", index=False)
 
         output_excel.seek(0)
 
         # ===== DISPLAY =====
         st.success("Reconciliation Complete ✅")
 
-        st.write("Matched Amounts:", len(set(found_amounts)))
-        st.write("Matched Transactions:", len(set(found_txns)))
+        st.write("Matched Rows:", len(matched_df))
+        st.write("Missing Rows:", len(missing_df))
 
         # ===== DOWNLOAD EXCEL =====
         st.download_button(
