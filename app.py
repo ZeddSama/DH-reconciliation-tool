@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz  # PyMuPDF
 from PyPDF2 import PdfReader
-import tempfile
 import io
 
 st.title("REDPAY Reconciliation Tool")
@@ -35,7 +33,7 @@ if st.button("Run Reconciliation"):
         amounts = debits[amount_col].dropna().tolist()
         txn_ids = debits[txn_col].dropna().astype(str).str.strip().tolist()
 
-        # ===== READ PDF =====
+        # ===== READ PDF TEXT =====
         pdf_file.seek(0)
         reader = PdfReader(pdf_file)
 
@@ -63,7 +61,7 @@ if st.button("Run Reconciliation"):
             if txn in pdf_text:
                 found_txns.append(txn)
 
-        # ===== REPORT DATA (FIXED STRUCTURE) =====
+        # ===== REPORT DATA =====
 
         # FOUND
         found_amount_df = pd.DataFrame({
@@ -76,3 +74,41 @@ if st.button("Run Reconciliation"):
 
         # MISSING
         all_amounts = [int(float(a)) for a in amounts if pd.notna(a)]
+        missing_amounts = sorted(set(all_amounts) - set(found_amount_df["Matched Amounts"]))
+        missing_txns = sorted(set(txn_ids) - set(found_txns))
+
+        missing_amount_df = pd.DataFrame({
+            "Missing Amounts": missing_amounts
+        })
+
+        missing_txn_df = pd.DataFrame({
+            "Missing Transaction IDs": missing_txns
+        })
+
+        # ===== CREATE EXCEL REPORT =====
+        output_excel = io.BytesIO()
+
+        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+            found_amount_df.to_excel(writer, sheet_name="FOUND_AMOUNTS", index=False)
+            found_txn_df.to_excel(writer, sheet_name="FOUND_TXNS", index=False)
+            missing_amount_df.to_excel(writer, sheet_name="MISSING_AMOUNTS", index=False)
+            missing_txn_df.to_excel(writer, sheet_name="MISSING_TXNS", index=False)
+
+        output_excel.seek(0)
+
+        # ===== DISPLAY =====
+        st.success("Reconciliation Complete ✅")
+
+        st.write("Matched Amounts:", len(set(found_amounts)))
+        st.write("Matched Transactions:", len(set(found_txns)))
+
+        # ===== DOWNLOAD EXCEL =====
+        st.download_button(
+            label="Download Excel Report",
+            data=output_excel,
+            file_name="reconciliation_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    else:
+        st.warning("Please upload both files.")
