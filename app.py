@@ -3,6 +3,7 @@ import pandas as pd
 import fitz  # PyMuPDF
 from PyPDF2 import PdfReader
 import tempfile
+import io
 
 st.title("REDPAY Reconciliation Tool")
 
@@ -25,8 +26,8 @@ if st.button("Run Reconciliation"):
 
         # ===== COLUMN SETUP =====
         action_col = df.columns[0]
-        amount_col = df.columns[1]   # Column 2
-        txn_col = df.columns[11]     # Column 12
+        amount_col = df.columns[1]
+        txn_col = df.columns[11]
 
         # ===== FILTER DEBITS =====
         debits = df[df[action_col].astype(str).str.strip().str.upper() == "DEBIT"]
@@ -35,7 +36,7 @@ if st.button("Run Reconciliation"):
         txn_ids = debits[txn_col].dropna().astype(str).str.strip().tolist()
 
         # ===== READ PDF TEXT =====
-        pdf_file.seek(0)  # IMPORTANT
+        pdf_file.seek(0)
         reader = PdfReader(pdf_file)
 
         pdf_text = ""
@@ -44,7 +45,7 @@ if st.button("Run Reconciliation"):
             if text:
                 pdf_text += text
 
-        # Normalize for matching
+        # Normalize text
         pdf_text_clean = pdf_text.replace(",", "").replace(".00", "")
 
         # ===== MATCH =====
@@ -55,7 +56,7 @@ if st.button("Run Reconciliation"):
             try:
                 clean = str(int(float(amt)))
                 if clean in pdf_text_clean:
-                    found_amounts.append(amt)  # keep original
+                    found_amounts.append(amt)
             except:
                 pass
 
@@ -63,25 +64,37 @@ if st.button("Run Reconciliation"):
             if txn in pdf_text:
                 found_txns.append(txn)
 
-        # ===== CREATE REPORT =====
-        report_text = "RECONCILIATION REPORT\n\n"
+        # ===== CREATE DATAFRAMES FOR REPORT =====
 
-        report_text += "FOUND AMOUNTS\n---------------------\n"
-        for a in sorted(set(found_amounts)):
-            report_text += str(int(float(a))) + "\n"
+        # FOUND
+        found_df = pd.DataFrame({
+            "Matched Amount": [int(float(a)) for a in found_amounts],
+        })
 
-        report_text += "\nMISSING AMOUNTS\n---------------------\n"
-        all_amounts = [str(int(float(a))) for a in amounts if pd.notna(a)]
-        for a in sorted(set(all_amounts) - set(str(int(float(x))) for x in found_amounts)):
-            report_text += a + "\n"
+        if found_txns:
+            found_df["Matched Transaction ID"] = list(set(found_txns))
 
-        report_text += "\nFOUND TRANSACTION IDs\n---------------------\n"
-        for t in sorted(set(found_txns)):
-            report_text += t + "\n"
+        # MISSING
+        all_amounts = [int(float(a)) for a in amounts if pd.notna(a)]
+        missing_amounts = list(set(all_amounts) - set(found_df["Matched Amount"]))
 
-        report_text += "\nMISSING TRANSACTION IDs\n---------------------\n"
-        for t in sorted(set(txn_ids) - set(found_txns)):
-            report_text += t + "\n"
+        missing_txns = list(set(txn_ids) - set(found_txns))
+
+        missing_df = pd.DataFrame({
+            "Missing Amount": missing_amounts,
+        })
+
+        if missing_txns:
+            missing_df["Missing Transaction ID"] = missing_txns
+
+        # ===== CREATE EXCEL OUTPUT =====
+        output_excel = io.BytesIO()
+
+        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+            found_df.to_excel(writer, sheet_name="FOUND", index=False)
+            missing_df.to_excel(writer, sheet_name="MISSING", index=False)
+
+        output_excel.seek(0)
 
         # ===== SAVE PDF TEMP =====
         pdf_file.seek(0)
@@ -94,14 +107,13 @@ if st.button("Run Reconciliation"):
 
         doc = fitz.open(temp_pdf_path)
 
-        # ===== HIGHLIGHT ONLY MATCHES =====
+        # ===== HIGHLIGHT MATCHES =====
         for page in doc:
 
-            # highlight matched amounts
+            # highlight amounts
             for amt in set(found_amounts):
                 try:
                     val = float(amt)
-
                     formats = [
                         f"{val:,.2f}",
                         f"{int(val):,}"
@@ -110,16 +122,16 @@ if st.button("Run Reconciliation"):
                     for f in formats:
                         for inst in page.search_for(f):
                             annot = page.add_highlight_annot(inst)
-                            annot.set_colors(stroke=(1, 1, 0))  # yellow
+                            annot.set_colors(stroke=(1, 1, 0))
                             annot.update()
                 except:
                     pass
 
-            # highlight matched transaction IDs
+            # highlight transactions
             for txn in set(found_txns):
                 for inst in page.search_for(txn):
                     annot = page.add_highlight_annot(inst)
-                    annot.set_colors(stroke=(0, 1, 0))  # green
+                    annot.set_colors(stroke=(0, 1, 0))
                     annot.update()
 
         # ===== SAVE OUTPUT PDF =====
@@ -127,17 +139,17 @@ if st.button("Run Reconciliation"):
         doc.save(output_pdf, deflate=True, garbage=4)
 
         # ===== DISPLAY =====
-        st.success("Done!")
+        st.success("Reconciliation Complete ✅")
 
         st.write("Matched Amounts:", len(set(found_amounts)))
         st.write("Matched Transactions:", len(set(found_txns)))
 
-        # ===== DOWNLOAD REPORT =====
+        # ===== DOWNLOAD EXCEL REPORT =====
         st.download_button(
-            label="Download Report",
-            data=report_text,
-            file_name="reconciliation_report.txt",
-            mime="text/plain"
+            label="Download Excel Report",
+            data=output_excel,
+            file_name="reconciliation_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
         # ===== DOWNLOAD PDF =====
