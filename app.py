@@ -86,8 +86,8 @@ if st.button("Run Reconciliation"):
         # ===== DISPLAY =====
         st.success("Reconciliation Complete ✅")
 
-        st.write("Matched Rows:", len(matched_df))
-        st.write("Missing Rows:", len(missing_df))
+        st.write("Confirmed Settlements:", len(matched_df))
+        st.write("Missing Settlements:", len(missing_df))
 
         # ===== DOWNLOAD EXCEL =====
         st.download_button(
