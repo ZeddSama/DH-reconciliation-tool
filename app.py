@@ -78,16 +78,16 @@ if st.button("Run Reconciliation"):
         output_excel = io.BytesIO()
 
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-            matched_df.to_excel(writer, sheet_name="MATCHED", index=False)
-            missing_df.to_excel(writer, sheet_name="MISSING", index=False)
+            matched_df.to_excel(writer, sheet_name="CONFIRMED SETTLEMENTS", index=False)
+            missing_df.to_excel(writer, sheet_name="MISSING SETTLEMENTS", index=False)
 
         output_excel.seek(0)
 
         # ===== DISPLAY =====
         st.success("Reconciliation Complete ✅")
 
-        st.write("Confirmed Settlements:", len(matched_df))
-        st.write("Missing Settlements:", len(missing_df))
+        st.write("Matched rows:", len(matched_df))
+        st.write("Missing rows:", len(missing_df))
 
         # ===== DOWNLOAD EXCEL =====
         st.download_button(
